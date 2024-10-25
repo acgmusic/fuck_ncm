@@ -83,7 +83,8 @@ def dump(file_path):
     image_size = struct.unpack('<I', bytes(image_size))[0]
     image_data = f.read(image_size)
     file_name = f.name.split("/")[-1].split(".ncm")[0] + '.' + meta_data['format']
-    m = open(os.path.join(os.path.split(file_path)[0], file_name), 'wb')
+    file_newpath = os.path.join(os.path.split(file_path)[0], file_name)
+    m = open(file_newpath, 'wb')
     chunk = bytearray()
     while True:
         chunk = bytearray(f.read(0x8000))
@@ -101,7 +102,7 @@ def dump(file_path):
         warnings.warn(f"图片不是jpg格式，不支持添加封面: {cover_url}")
     else:
         download_pic(cover_url, "./temp.jpg")
-        add_cover_2_mp3(file_name, "./temp.jpg")
+        add_cover_2_mp3(file_newpath, "./temp.jpg")
         os.remove("./temp.jpg")
     return file_name
 
