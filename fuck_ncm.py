@@ -7,6 +7,7 @@ from Crypto.Cipher import AES
 import requests
 import eyed3
 import warnings
+import time
 
 
 # 下载网页图片
@@ -15,7 +16,18 @@ def download_pic(url, save_fn):
         'User-Agent': "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
                       "Chrome/100.0.4896.127 Safari/537.36 "
     }
-    response = requests.get(url=url, headers=headers)
+    
+    for i in range(3):
+        try:
+            response = requests.get(url=url, headers=headers)
+            break
+        except Exception:
+            print("图片下载异常，等待重试。。。")
+            time.sleep(5)
+            continue
+    else:
+        assert 0, "图片下载失败"
+
     with open(save_fn, 'wb') as f:
         f.write(response.content)
 
@@ -29,12 +41,12 @@ def add_cover_2_mp3(mp3_fp, pic_fp):
     audio_file.tag.save()
 
 
-def dump(file_path):
+def dump(input_fp, output_fp):
     #十六进制转字符串
     core_key = binascii.a2b_hex("687A4852416D736F356B496E62617857")
     meta_key = binascii.a2b_hex("2331346C6A6B5F215C5D2630553C2728")
     unpad = lambda s: s[0:-(s[-1] if type(s[-1]) == int else ord(s[-1]))]
-    f = open(file_path, 'rb')
+    f = open(input_fp, 'rb')
     header = f.read(8)
     #字符串转十六进制
     assert binascii.b2a_hex(header) == b'4354454e4644414d'
@@ -83,8 +95,7 @@ def dump(file_path):
     image_size = struct.unpack('<I', bytes(image_size))[0]
     image_data = f.read(image_size)
     file_name = f.name.split("/")[-1].split(".ncm")[0] + '.' + meta_data['format']
-    file_newpath = os.path.join(os.path.split(file_path)[0], file_name)
-    m = open(file_newpath, 'wb')
+    m = open(output_fp, 'wb')
     chunk = bytearray()
     while True:
         chunk = bytearray(f.read(0x8000))
@@ -99,29 +110,76 @@ def dump(file_path):
     f.close()
     # 添加封面
     if cover_url[-3:] != "jpg":
+        # todo: 是否可能有其他格式
         warnings.warn(f"图片不是jpg格式，不支持添加封面: {cover_url}")
     else:
-        download_pic(cover_url, "./temp.jpg")
-        add_cover_2_mp3(file_newpath, "./temp.jpg")
-        os.remove("./temp.jpg")
+        tmp_jpg_fn = os.path.join(os.path.dirname(output_fp), f".temp_{os.path.basename(output_fp)}.jpg")
+        download_pic(cover_url, tmp_jpg_fn)
+        add_cover_2_mp3(output_fp, tmp_jpg_fn)
+        os.remove(tmp_jpg_fn)
     return file_name
 
 
 if __name__ == '__main__':
-    # 将目录中的ncm文件转成mp3
-    def crack_ncm_file(path):
-        for file in os.listdir(path):
-            file_path = os.path.join(path, file)
-            if file[-3:] == 'ncm':
-                dump(file_path)
-                os.remove(file_path)
-                print(file_path, " 转换成功")
+    # 将目录中的ncm文件转成mp3(多线程版本)
+    import os
+    from tqdm import tqdm
+    import psutil
+    from concurrent.futures import ThreadPoolExecutor, wait
     import argparse
     parser = argparse.ArgumentParser(description="nothing")
     parser.add_argument('-p', action='store')
     args = parser.parse_args()
-    crack_ncm_file(args.p)
+    ncm_path = args.p
 
-    # path = r"D:\chord_analyzer\songs\田中秀和"
-    #
-    # crack_ncm_file(path)
+    assert ncm_path, "请输入正确的路径"
+
+    MAX_CPU_PERCENT = 80  # 最大CPU占用率
+    output_path = os.path.join(ncm_path, "output") # 默认输出到原路径的output目录下
+    os.makedirs(output_path, exist_ok=True)
+
+    #@ multithread
+    def dump_ncm_to_mp3(input_fp, output_fp):
+        if input_fp[-4:].lower() != ".ncm":
+            return  # 跳过非ncm文件
+        
+        if os.path.exists(output_fp):
+            return  # 跳过已转换文件
+        
+        for i in range(5):
+            try:
+                # 动态调整线程数
+                while psutil.cpu_percent(1) > MAX_CPU_PERCENT:
+                    pass  # 等待CPU占用下降
+                dump(input_fp, output_fp)
+                # print(input_fp, " 转换成功")
+                return True
+            except Exception as e:
+                time.sleep(3)
+        else:
+            print(f"转换失败，文件：{input_fp}")
+            return False
+
+
+    def run():
+        cpu_count = os.cpu_count()
+        max_workers = max(1, int(cpu_count * 0.8))  # 最大进程数量，这里使用80%的cpu核数
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(
+                    dump_ncm_to_mp3, 
+                    os.path.join(ncm_path, os.path.basename(file)), 
+                    os.path.join(output_path, os.path.basename(file)[:-3]+"mp3"),
+                ) 
+                for file in os.listdir(ncm_path)
+            ]
+            
+            # 进度条显示
+            with tqdm(total=len(futures), desc="Converting") as pbar:
+                for future in futures:
+                    future.add_done_callback(lambda _: pbar.update(1))
+                wait(futures)
+
+    run()
+
