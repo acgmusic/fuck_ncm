@@ -5,8 +5,11 @@
 请先安装依赖库：
 
 ```cmd
-pip install pycrytodome
+pip install pycryptodome
 pip install eyed3
+pip install requests
+pip install tqdm
+pip install psutil
 ```
 
 使用方法：命令行cd到文件目录，然后输入如下代码，其中`your_file_path`为ncm文件所在文件夹。输出mp3路径在同目录的`output`文件夹下。
