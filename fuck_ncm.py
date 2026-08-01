@@ -94,7 +94,10 @@ def dump(input_fp, output_fp):
     image_size = f.read(4)
     image_size = struct.unpack('<I', bytes(image_size))[0]
     image_data = f.read(image_size)
-    file_name = f.name.split("/")[-1].split(".ncm")[0] + '.' + meta_data['format']
+    fmt = meta_data.get("format", "bin").lower()
+    base_name = os.path.basename(input_fp).rsplit('.', 1)[0]
+    file_name = base_name + '.' + fmt
+    output_fp = output_fp.rsplit('.', 1)[0] + '.' + fmt
     m = open(output_fp, 'wb')
     chunk = bytearray()
     while True:
@@ -170,7 +173,7 @@ if __name__ == '__main__':
                 executor.submit(
                     dump_ncm_to_mp3, 
                     os.path.join(ncm_path, os.path.basename(file)), 
-                    os.path.join(output_path, os.path.basename(file)[:-3]+"mp3"),
+                    os.path.join(output_path, os.path.basename(file)),
                 ) 
                 for file in os.listdir(ncm_path)
             ]
